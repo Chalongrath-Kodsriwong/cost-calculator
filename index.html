@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ต้นทุน">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>คำนวณต้นทุนสินค้า</title>
+<meta name="description" content="เครื่องมือคำนวณต้นทุนต่อชิ้น ราคาขายแนะนำ กำไร และจุดคุ้มทุน">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <h1>💰 คำนวณต้นทุน</h1>
+    <div class="product-picker">
+      <select id="productSelect" aria-label="เลือกสินค้า"></select>
+      <button class="btn" id="newProduct">+ สินค้าใหม่</button>
+      <button class="btn ghost" id="dupProduct" title="ทำสำเนา">⧉</button>
+      <button class="btn ghost danger" id="delProduct" title="ลบสินค้านี้">🗑</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap layout">
+  <section class="inputs">
+    <div class="card">
+      <h2>ข้อมูลสินค้า</h2>
+      <div class="grid2">
+        <label>ชื่อสินค้า<input id="name" type="text" placeholder="เช่น สบู่สมุนไพร"></label>
+        <label>ผลิตได้ต่อล็อต (ชิ้น)<input id="batchUnits" type="number" inputmode="numeric" min="1" step="1"></label>
+      </div>
+      <p class="hint">วัตถุดิบและค่าแรงด้านล่าง ให้กรอกเป็น "ต่อ 1 ล็อต" ระบบจะหารเป็นต่อชิ้นให้</p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>① วัตถุดิบ <small>(ต่อล็อต)</small></h2><span class="subtotal" id="matTotal"></span></div>
+      <div class="rows" id="materials"></div>
+      <button class="btn add" data-add="materials">+ เพิ่มวัตถุดิบ</button>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>② ค่าแรง <small>(ต่อล็อต)</small></h2><span class="subtotal" id="labTotal"></span></div>
+      <div class="rows" id="labor"></div>
+      <button class="btn add" data-add="labor">+ เพิ่มค่าแรง</button>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>③ ต้นทุนผันแปรต่อชิ้น</h2><span class="subtotal" id="extTotal"></span></div>
+      <p class="hint">เช่น บรรจุภัณฑ์ สติกเกอร์ ค่าส่ง</p>
+      <div class="rows" id="extras"></div>
+      <button class="btn add" data-add="extras">+ เพิ่มรายการ</button>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>④ ค่าใช้จ่ายคงที่ <small>(ต่อเดือน)</small></h2><span class="subtotal" id="fixTotal"></span></div>
+      <p class="hint">เช่น ค่าเช่า ค่าไฟ เงินเดือนประจำ ค่าโฆษณา — จะถูกเฉลี่ยตามยอดผลิตต่อเดือน</p>
+      <div class="rows" id="fixed"></div>
+      <button class="btn add" data-add="fixed">+ เพิ่มรายการ</button>
+      <label class="mt">ยอดผลิต/ขายต่อเดือน (ชิ้น)<input id="monthlyUnits" type="number" inputmode="numeric" min="1" step="1"></label>
+    </div>
+
+    <div class="card">
+      <h2>⑤ ราคาขาย</h2>
+      <div class="grid2">
+        <label>ค่าธรรมเนียม (% ของราคาขาย)<input id="feePct" type="number" inputmode="decimal" min="0" max="99" step="0.1"><span class="hint">ค่า GP แพลตฟอร์ม, ค่าธรรมเนียมบัตร ฯลฯ</span></label>
+        <label>กำไรเป้าหมาย (% ของราคาขาย)<input id="targetMargin" type="number" inputmode="decimal" min="0" max="99" step="0.5"></label>
+      </div>
+      <label class="mt">ราคาขายจริง (บาท) <span class="hint">— เว้นว่างไว้เพื่อใช้ราคาแนะนำ</span><input id="sellPrice" type="number" inputmode="decimal" min="0" step="0.01" placeholder="ใช้ราคาแนะนำ"></label>
+    </div>
+  </section>
+
+  <aside class="results" id="results">
+    <div class="card sticky">
+      <h2>สรุปผล</h2>
+      <div class="big">
+        <span>ต้นทุนต่อชิ้น</span>
+        <strong id="rCost">฿0.00</strong>
+      </div>
+      <div class="bar" id="costBar" aria-hidden="true"></div>
+      <ul class="breakdown" id="breakdown"></ul>
+
+      <div class="big accent">
+        <span>ราคาขายแนะนำ</span>
+        <strong id="rSuggest">-</strong>
+        <small id="rSuggestNote"></small>
+      </div>
+
+      <table class="stats">
+        <tbody>
+          <tr><th>ราคาที่ใช้คำนวณ</th><td id="rPrice">-</td></tr>
+          <tr><th>ค่าธรรมเนียม/ชิ้น</th><td id="rFee">-</td></tr>
+          <tr><th>กำไร/ชิ้น</th><td id="rProfit">-</td></tr>
+          <tr><th>อัตรากำไร (Margin)</th><td id="rMargin">-</td></tr>
+          <tr><th>Markup จากต้นทุน</th><td id="rMarkup">-</td></tr>
+          <tr><th>จุดคุ้มทุน/เดือน</th><td id="rBreakeven">-</td></tr>
+          <tr><th>กำไรต่อเดือน (ประมาณ)</th><td id="rMonthly">-</td></tr>
+        </tbody>
+      </table>
+      <p class="warn" id="warn" hidden></p>
+
+      <div class="actions">
+        <button class="btn ghost" id="exportCsv">⬇ CSV</button>
+        <button class="btn ghost" id="exportJson">⬇ สำรองข้อมูล</button>
+        <label class="btn ghost file">⬆ นำเข้า<input type="file" id="importJson" accept="application/json" hidden></label>
+        <button class="btn ghost" id="printBtn">🖨 พิมพ์</button>
+      </div>
+      <p class="hint center">ข้อมูลบันทึกอัตโนมัติในเบราว์เซอร์นี้</p>
+    </div>
+  </aside>
+</main>
+
+<button class="mobilebar" id="mobilebar" type="button" aria-label="ดูสรุปผล">
+  <span><small>ต้นทุน/ชิ้น</small><b id="mCost">฿0.00</b></span>
+  <span><small>ราคาแนะนำ</small><b id="mSuggest">-</b></span>
+  <span><small>กำไร/ชิ้น</small><b id="mProfit">-</b></span>
+  <span class="go">สรุป ↓</span>
+</button>
+
+<template id="rowTpl">
+  <div class="row">
+    <input class="f-name" type="text" placeholder="รายการ">
+    <label class="cell ca"><small></small><input class="f-a" type="number" inputmode="decimal" step="any" min="0"></label>
+    <label class="cell cb"><small></small><input class="f-b" type="number" inputmode="decimal" step="any" min="0"></label>
+    <span class="f-sum"></span>
+    <button class="icon del" title="ลบ" aria-label="ลบ">×</button>
+  </div>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
