@@ -30,7 +30,7 @@
   const defaults = () => ({
     v: 1,
     settings: { shopName: 'ร้านของฉัน', vat: 7, fc: 35, magic: true, gasPrice: 420, gasHours: 15, platforms: clone(DEFAULT_PLATFORMS) },
-    ings: [], menus: [],
+    ings: [], menus: [], tx: [],
     be: { labor: 0, rent: 0, utility: 0, other: 0, ads: 0, days: 30, profitOn: true, profit: 15, fcManual: '' },
     sample: false,
   });
@@ -42,6 +42,7 @@
     const d = defaults();
     db.settings = Object.assign(d.settings, db.settings || {});
     db.be = Object.assign(d.be, db.be || {});
+    if (!Array.isArray(db.tx)) db.tx = [];
   }
   let saveT;
   function save() {
@@ -183,16 +184,16 @@
 
   // ================= router & views =================
   let route = 'home';
-  const ui = { menuType: 'all', menuQ: '', ingTab: 'mine', ingCat: 'all', ingQ: '' };
+  const ui = { month: '', menuType: 'all', menuQ: '', ingTab: 'mine', ingCat: 'all', ingQ: '' };
 
   function go(r) { route = r; location.hash = r; render(); window.scrollTo(0, 0); }
   function render() {
     $('#shopName').textContent = db.settings.shopName || 'คุ้มครัว';
     $$('.tabbar button').forEach(b => b.classList.toggle('on', b.dataset.go === route));
     const v = $('#view');
-    const fn = { home: vHome, menus: vMenus, ings: vIngs, breakeven: vBreakeven, settings: vSettings }[route] || vHome;
+    const fn = { home: vHome, menus: vMenus, ings: vIngs, breakeven: vBreakeven, settings: vSettings, money: vMoney }[route] || vHome;
     v.innerHTML = fn();
-    const fab = { menus: '<button class="btn fab" data-act="newMenu">＋ เมนูใหม่</button>', ings: '<button class="btn fab" data-act="newIng">＋ เพิ่มเอง</button>' }[route];
+    const fab = { menus: '<button class="btn fab" data-act="newMenu">＋ เมนูใหม่</button>', ings: '<button class="btn fab" data-act="newIng">＋ เพิ่มเอง</button>', money: '<button class="btn fab" data-act="newTx">＋ บันทึก</button>' }[route];
     if (fab) v.insertAdjacentHTML('beforeend', fab);
   }
 
@@ -215,6 +216,7 @@
         <div class="stat"><div class="ic">💰</div><div class="v num">${baht(st.cost, 0)}</div><div class="k">ต้นทุนเฉลี่ย/จาน</div></div>
         <div class="stat"><div class="ic">📈</div><div class="v num ${st.margin < 0 ? 'bad' : ''}">${pct(st.margin)}</div><div class="k">กำไรขั้นต้นเฉลี่ย</div></div>
       </div>
+      ${homeMoneyCard()}
       <div class="grid2" style="margin-bottom:12px">
         <button class="btn" data-act="newMenu">＋ เพิ่มเมนู</button>
         <button class="btn soft" data-go="breakeven">🎯 จุดคุ้มทุน</button>
@@ -381,6 +383,254 @@
         </div>
       </div>
       <p class="center small muted">คุ้มครัว · ใช้งานฟรี ข้อมูลไม่ถูกส่งออกจากเครื่อง</p>`;
+  }
+
+  // ================= บัญชีรายรับรายจ่าย =================
+  const EXP_CATS = [
+    { id: 'ing', name: 'วัตถุดิบ', ic: '🥩' }, { id: 'pack', name: 'บรรจุภัณฑ์', ic: '🛍️' },
+    { id: 'gas', name: 'แก๊ส', ic: '🔥' }, { id: 'labor', name: 'ค่าแรง', ic: '👤' },
+    { id: 'rent', name: 'ค่าเช่า', ic: '🏠' }, { id: 'utility', name: 'ค่าน้ำ ค่าไฟ', ic: '💡' },
+    { id: 'ads', name: 'โฆษณา', ic: '📣' }, { id: 'repair', name: 'ซ่อม/อุปกรณ์', ic: '🛠️' },
+    { id: 'ex_other', name: 'อื่นๆ', ic: '📦' },
+  ];
+  const incCats = () => [
+    { id: 'store', name: 'ขายหน้าร้าน', ic: '🏪', gp: 0 },
+    ...db.settings.platforms.map(p => ({ id: 'p_' + p.id, name: p.name, ic: '🛵', gp: num(p.gp) })),
+    { id: 'in_other', name: 'รายรับอื่นๆ', ic: '💰', gp: 0 },
+  ];
+  const txCat = (t) => (t.type === 'in' ? incCats() : EXP_CATS).find(c => c.id === t.cat) || { id: t.cat, name: t.catName || 'อื่นๆ', ic: t.type === 'in' ? '💰' : '📦' };
+  const ymNow = () => today().slice(0, 7);
+  const ymLabel = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }); };
+  const ymShift = (ym, d) => { const [y, m] = ym.split('-').map(Number); const t = new Date(y, m - 1 + d, 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}`; };
+  const monthTx = (ym) => db.tx.filter(t => (t.date || '').startsWith(ym));
+
+  function beCalc() {
+    const b = db.be, st = shopStats();
+    const fixed = ['labor', 'rent', 'utility', 'other', 'ads'].reduce((s, k) => s + num(b[k]), 0);
+    const v = b.fcManual !== '' && b.fcManual != null ? num(b.fcManual) / 100 : st.variable;
+    const p = b.profitOn ? num(b.profit) / 100 : 0;
+    const den = 1 - v - p;
+    return { fixed, need: den > 0 ? fixed / den : Infinity, breakEven: (1 - v) > 0 ? fixed / (1 - v) : Infinity };
+  }
+
+  function monthSummary(ym) {
+    const list = monthTx(ym);
+    const sum = (f) => list.filter(f).reduce((s, t) => s + num(t.amount), 0);
+    const inc = sum(t => t.type === 'in'), exp = sum(t => t.type === 'out');
+    const by = (type) => {
+      const m = {};
+      list.filter(t => t.type === type).forEach(t => { const c = txCat(t); (m[c.id] ||= { ...c, v: 0 }).v += num(t.amount); });
+      return Object.values(m).sort((a, b) => b.v - a.v);
+    };
+    const cogs = list.filter(t => t.type === 'in').reduce((s, t) => s + num(t.cogs), 0);
+    const salesNet = list.filter(t => t.type === 'in' && t.items).reduce((s, t) => s + num(t.amount), 0);
+    return { list, inc, exp, net: inc - exp, inBy: by('in'), outBy: by('out'), cogs, salesNet };
+  }
+
+  function homeMoneyCard() {
+    const ym = ymNow(), s = monthSummary(ym);
+    if (!db.tx.length) return `<div class="card"><div class="row between"><div><b>💵 บัญชีรายรับรายจ่าย</b><div class="small muted">บันทึกยอดขายและค่าใช้จ่าย ดูกำไรจริงรายเดือน</div></div><button class="btn sm" data-go="money">เริ่ม</button></div></div>`;
+    return `<div class="card" data-go="money" style="cursor:pointer"><div class="row between"><b>💵 เดือนนี้ (${ymLabel(ym)})</b><span class="small muted">ดูบัญชี ›</span></div>
+      <div class="grid2" style="margin-top:8px"><div><div class="small muted">รายรับ</div><b class="in num">${baht(s.inc, 0)}</b></div><div><div class="small muted">รายจ่าย</div><b class="out num">${baht(s.exp, 0)}</b></div></div>
+      <div class="costrow total"><span>${s.net >= 0 ? 'กำไรสุทธิ' : 'ขาดทุนสุทธิ'}</span><b class="${s.net >= 0 ? 'good' : 'bad'}">${baht(s.net, 0)}</b></div></div>`;
+  }
+
+  function dailyBars(ym, list) {
+    const [y, m] = ym.split('-').map(Number), n = new Date(y, m, 0).getDate();
+    const inD = Array(n).fill(0), outD = Array(n).fill(0);
+    list.forEach(t => { const d = num(t.date.slice(8, 10)) - 1; if (d >= 0 && d < n) (t.type === 'in' ? inD : outD)[d] += num(t.amount); });
+    const mx = Math.max(1, ...inD, ...outD), W = 320, H = 110, bw = W / n;
+    const bars = inD.map((v, i) => {
+      const hi = v / mx * (H - 16), ho = outD[i] / mx * (H - 16), x = i * bw;
+      return `${v ? `<rect x="${x + bw * .12}" y="${H - 12 - hi}" width="${bw * .36}" height="${hi}" rx="1.5" fill="#14b8a6"/>` : ''}${outD[i] ? `<rect x="${x + bw * .52}" y="${H - 12 - ho}" width="${bw * .36}" height="${ho}" rx="1.5" fill="#f97316"/>` : ''}`;
+    }).join('');
+    const ticks = [1, 10, 20, n].map(d => `<text x="${(d - .5) * bw}" y="${H - 1}" font-size="8" text-anchor="middle" fill="currentColor" opacity=".55">${d}</text>`).join('');
+    return `<svg class="bars" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="กราฟรายรับรายจ่ายรายวัน">${bars}${ticks}</svg>
+      <div class="row small muted" style="gap:14px;justify-content:center"><span><b style="color:#14b8a6">■</b> รายรับ</span><span><b style="color:#f97316">■</b> รายจ่าย</span></div>`;
+  }
+
+  function vMoney() {
+    const ym = ui.month || ymNow(), s = monthSummary(ym), be = beCalc();
+    const days = {};
+    [...s.list].sort((a, b) => (b.date + (b.ts || '')).localeCompare(a.date + (a.ts || ''))).forEach(t => (days[t.date] ||= []).push(t));
+    const catBlock = (rows, total, cls) => rows.map(c => `<div class="catrow"><div class="row between"><span>${c.ic} ${esc(c.name)}</span><b class="num">${baht(c.v, 0)} <small class="muted">${pct(total ? c.v / total : 0, 0)}</small></b></div><div class="meter ${cls}"><i style="width:${total ? c.v / total * 100 : 0}%"></i></div></div>`).join('');
+    const target = Number.isFinite(be.need) && be.need > 0 ? be.need : 0;
+    return `
+      <div class="page-title"><h1>💵 บัญชี</h1><button class="btn sm ghost" data-act="exportTxCsv">⬇ CSV</button></div>
+      <div class="monthbar"><button class="iconbtn" data-act="monthPrev" aria-label="เดือนก่อน">‹</button><b>${ymLabel(ym)}</b><button class="iconbtn" data-act="monthNext" aria-label="เดือนถัดไป" ${ym >= ymNow() ? 'disabled style="opacity:.35"' : ''}>›</button></div>
+      <div class="pl">
+        <div class="stat"><div class="k">รายรับ</div><div class="v in num">${baht(s.inc, 0)}</div></div>
+        <div class="stat"><div class="k">รายจ่าย</div><div class="v out num">${baht(s.exp, 0)}</div></div>
+      </div>
+      <div class="net ${s.net < 0 ? 'neg' : ''}"><div class="small muted">${s.net >= 0 ? 'กำไรสุทธิเดือนนี้' : 'ขาดทุนสุทธิเดือนนี้'}</div><div class="v num ${s.net >= 0 ? 'good' : 'bad'}">${baht(s.net, 0)}</div>
+        ${s.inc ? `<div class="small muted">อัตรากำไรสุทธิ ${pct(s.net / s.inc)}</div>` : ''}</div>
+      <div class="grid2" style="margin:12px 0">
+        <button class="btn" data-act="newSale">🧾 บันทึกยอดขาย</button>
+        <button class="btn accent" data-act="newTx" data-v="out">－ บันทึกรายจ่าย</button>
+      </div>
+      ${target ? `<div class="card"><div class="row between"><b>🎯 ยอดขายเทียบเป้า</b><span class="small muted">เป้า ${baht(target, 0)}</span></div>
+        <div class="meter ${s.inc >= target ? '' : s.inc >= be.breakEven ? 'warn' : 'bad'}"><i style="width:${Math.min(100, s.inc / target * 100)}%"></i></div>
+        <div class="small ${s.inc >= target ? 'good' : 'muted'}">${s.inc >= target ? '✅ ถึงเป้าแล้ว!' : `ขาดอีก ${baht(target - s.inc, 0)}${ym === ymNow() ? ` · ${s.inc >= be.breakEven ? 'ผ่านจุดคุ้มทุนแล้ว' : `จุดคุ้มทุน ${baht(be.breakEven, 0)}`}` : ''}`}</div></div>` : ''}
+      ${s.list.length ? `
+        <div class="card"><h2>รายวัน</h2>${dailyBars(ym, s.list)}</div>
+        ${s.inBy.length ? `<div class="card"><h2>รายรับตามช่องทาง</h2>${catBlock(s.inBy, s.inc, '')}
+          ${s.cogs ? `<div class="hint">ขายจากเมนู ${baht(s.salesNet, 0)} · ต้นทุนวัตถุดิบตามสูตรประมาณ ${baht(s.cogs, 0)} (${pct(s.salesNet ? s.cogs / s.salesNet : 0)})</div>` : ''}</div>` : ''}
+        ${s.outBy.length ? `<div class="card"><h2>รายจ่ายตามหมวด</h2>${catBlock(s.outBy, s.exp, 'bad')}</div>` : ''}
+        <h2 style="font-size:1.02rem;margin:16px 0 0">รายการ</h2>
+        ${Object.entries(days).map(([d, ts]) => {
+          const di = ts.filter(t => t.type === 'in').reduce((a, t) => a + num(t.amount), 0), dout = ts.filter(t => t.type === 'out').reduce((a, t) => a + num(t.amount), 0);
+          return `<div class="daygrp"><span>${thDate(d)}</span><span>${di ? `<span class="in">+${nf0.format(di)}</span>` : ''} ${dout ? `<span class="out">−${nf0.format(dout)}</span>` : ''}</span></div>` +
+            ts.map(t => { const c = txCat(t); return `<button class="tx" data-act="editTx" data-id="${t.id}"><div class="ic">${c.ic}</div><div class="grow"><div class="t">${esc(c.name)}</div>${t.note ? `<div class="s">${esc(t.note)}</div>` : ''}</div><div class="a ${t.type === 'in' ? 'in' : 'out'}">${t.type === 'in' ? '+' : '−'}${baht(t.amount, num(t.amount) % 1 ? 2 : 0)}</div></button>`; }).join('');
+        }).join('')}
+        <div style="text-align:center;margin-top:12px"><button class="btn sm soft" data-act="newTx" data-v="in">＋ รายรับอื่นๆ</button></div>`
+      : `<div class="empty"><div class="e">🧾</div>ยังไม่มีรายการใน${ymLabel(ym)}<br><span class="small">กด “บันทึกยอดขาย” เพื่อลงยอดจากเมนู หรือ “บันทึกรายจ่าย” เมื่อซื้อของ</span></div>`}`;
+  }
+
+  // ---------- รายรับ/รายจ่ายทั่วไป ----------
+  function txSheet(type = 'out', id = null) {
+    const ex = id ? db.tx.find(t => t.id === id) : null;
+    if (ex && ex.items) { saleSheet(id); return; }
+    const d = ex ? clone(ex) : { id: uid(), type, date: ui.month && ui.month !== ymNow() ? ui.month + '-01' : today(), amount: '', cat: type === 'in' ? 'store' : 'ing', note: '' };
+    const draw = () => {
+      const cats = d.type === 'in' ? incCats() : EXP_CATS;
+      const isIng = d.type === 'out' && d.cat === 'ing';
+      const ing = d.ingId ? getIng(d.ingId) : null;
+      $('#txBody').innerHTML = `
+        ${ex ? '' : `<div class="seg"><button class="${d.type === 'in' ? 'on' : ''}" data-tx="type" data-v="in">＋ รายรับ</button><button class="${d.type === 'out' ? 'on' : ''}" data-tx="type" data-v="out">－ รายจ่าย</button></div>`}
+        <label class="f">จำนวนเงิน (฿)<input type="number" inputmode="decimal" id="txAmt" value="${esc(d.amount)}" placeholder="0" style="font-size:1.6rem;font-weight:700;color:${d.type === 'in' ? 'var(--good)' : 'var(--bad)'}"></label>
+        <div class="small muted" style="margin-bottom:6px">หมวด</div>
+        <div class="chips" style="flex-wrap:wrap">${cats.map(c => `<button class="chip ${c.id === d.cat ? 'on' : ''}" data-tx="cat" data-v="${c.id}">${c.ic} ${esc(c.name)}</button>`).join('')}</div>
+        ${isIng ? `<div class="card" style="background:var(--soft);box-shadow:none"><b>🥩 ซื้อวัตถุดิบอะไร (ไม่บังคับ)</b>
+          <div class="small muted" style="margin-bottom:8px">ใส่แล้วระบบอัปเดตราคาในคลังวัตถุดิบ ต้นทุนเมนูจะคำนวณใหม่ให้</div>
+          <select id="txIng"><option value="">— ไม่ระบุ —</option>${[...db.ings].sort((a, b) => a.name.localeCompare(b.name, 'th')).map(i => `<option value="${i.id}" ${i.id === d.ingId ? 'selected' : ''}>${esc(i.name)} (ตอนนี้ ${baht(num(i.buyQty) ? num(i.buyPrice) / num(i.buyQty) : 0)}/${esc(i.unit)})</option>`).join('')}</select>
+          ${ing ? `<label class="f" style="margin-top:8px">จำนวนที่ซื้อ (${esc(ing.unit)})<input type="number" inputmode="decimal" id="txIngQty" value="${esc(d.ingQty ?? '')}" placeholder="เช่น 2"></label>
+            <div class="small muted" id="txIngOut"></div>
+            <label class="toggle"><span>อัปเดตราคาในคลังด้วย</span><input type="checkbox" id="txIngUpd" ${d.ingUpd === false ? '' : 'checked'}></label>` : ''}
+        </div>` : ''}
+        <div class="grid2">
+          <label class="f">วันที่<input type="date" id="txDate" value="${esc(d.date)}" max="${today()}"></label>
+          <label class="f">โน้ต<input type="text" id="txNote" value="${esc(d.note)}" placeholder="${d.type === 'in' ? 'เช่น จัดเลี้ยง' : 'เช่น ตลาดเช้า'}"></label>
+        </div>
+        ${ex ? `<button class="btn danger block" data-act="delTx" data-id="${ex.id}">ลบรายการนี้</button>` : ''}`;
+      const amt = $('#txAmt'), q = $('#txIngQty');
+      const out = () => { const o = $('#txIngOut'); if (o && ing) { const qq = num(q.value), a = num(amt.value); o.textContent = qq && a ? `= ${baht(a / qq)}/${ing.unit}` : ''; } };
+      amt.oninput = () => { d.amount = amt.value; out(); };
+      if (q) { q.oninput = () => { d.ingQty = q.value; out(); }; out(); }
+      $('#txDate').oninput = (e) => { d.date = e.target.value; };
+      $('#txNote').oninput = (e) => { d.note = e.target.value; };
+      const sel = $('#txIng'); if (sel) sel.onchange = () => { d.ingId = sel.value || undefined; draw(); };
+      const upd = $('#txIngUpd'); if (upd) upd.onchange = () => { d.ingUpd = upd.checked; };
+    };
+    const sh = openSheet({ title: ex ? 'แก้ไขรายการ' : 'บันทึกรายการ', id: 'tx', body: '<div id="txBody"></div>',
+      foot: '<button class="btn ghost" data-act="closeSheet">ยกเลิก</button><button class="btn" id="txSave">💾 บันทึก</button>' });
+    sh.el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tx]'); if (!b) return;
+      if (b.dataset.tx === 'type') { d.type = b.dataset.v; d.cat = d.type === 'in' ? 'store' : 'ing'; }
+      if (b.dataset.tx === 'cat') d.cat = b.dataset.v;
+      draw();
+    });
+    draw();
+    setTimeout(() => $('#txAmt')?.focus(), 250);
+    $('#txSave').onclick = () => {
+      if (!(num(d.amount) > 0)) { toast('ใส่จำนวนเงินก่อนนะ'); return; }
+      if (!d.date) d.date = today();
+      d.amount = num(d.amount); d.ts = d.ts || new Date().toISOString();
+      const ingNow = d.type === 'out' && d.cat === 'ing' && d.ingId ? getIng(d.ingId) : null;
+      if (!ingNow) { delete d.ingId; delete d.ingQty; }
+      else if (!d.note) d.note = `${ingNow.name}${num(d.ingQty) > 0 ? ` ${nfq.format(num(d.ingQty))} ${ingNow.unit}` : ''}`;
+      const i = db.tx.findIndex(t => t.id === d.id);
+      if (i >= 0) db.tx[i] = d; else db.tx.push(d);
+      let msg = 'บันทึกแล้ว';
+      if (ingNow && num(d.ingQty) > 0 && d.ingUpd !== false) {
+        const newP = d.amount / num(d.ingQty), last = (ingNow.history || []).slice(-1)[0];
+        ingNow.buyQty = num(d.ingQty); ingNow.buyPrice = d.amount;
+        if (!last || Math.abs(last.p - newP) > 1e-9) {
+          ingNow.history = ingNow.history || [];
+          if (last && last.d === d.date) ingNow.history[ingNow.history.length - 1] = { d: d.date, p: newP };
+          else ingNow.history.push({ d: d.date, p: newP });
+          ingNow.updatedAt = d.date;
+          const ch = last && last.p ? (newP - last.p) / last.p : 0;
+          msg = `บันทึกแล้ว · ${ingNow.name} ${ch ? (ch > 0 ? '▲ ' : '▼ ') + pct(Math.abs(ch), 0) : ''} ต้นทุนเมนูอัปเดตแล้ว`;
+        }
+      }
+      save(); closeSheet(); ui.month = d.date.slice(0, 7); render(); toast(msg);
+    };
+  }
+
+  // ---------- บันทึกยอดขายจากเมนู ----------
+  function saleSheet(id = null) {
+    const ex = id ? db.tx.find(t => t.id === id) : null;
+    const d = ex ? clone(ex) : { id: uid(), type: 'in', date: ui.month && ui.month !== ymNow() ? ui.month + '-01' : today(), cat: 'store', items: [], note: '' };
+    const qty = {}; (d.items || []).forEach(it => { qty[it.menuId + '|' + it.sizeId] = num(it.qty); });
+    let q = '';
+    const priceFor = (m, s) => {
+      const c = calcSize(s);
+      if (d.cat === 'store') return { gross: c.price, fee: 0, cogs: c.mat + c.pack };
+      const dl = c.delivery.find(x => 'p_' + x.id === d.cat);
+      return dl ? { gross: dl.price, fee: dl.fee, cogs: c.mat + c.pack } : { gross: c.price, fee: 0, cogs: c.mat + c.pack };
+    };
+    const totals = () => {
+      let gross = 0, fee = 0, cogs = 0, n = 0;
+      db.menus.forEach(m => m.sizes.forEach(s => { const k = m.id + '|' + s.id, n_ = qty[k] || 0; if (!n_) return; const p = priceFor(m, s); gross += p.gross * n_; fee += p.fee * n_; cogs += p.cogs * n_; n += n_; }));
+      return { gross, fee, net: gross - fee, cogs, n };
+    };
+    const sumHtml = () => { const t = totals(); return `
+      <div class="costrow"><span>ยอดขาย ${t.n} รายการ</span><b>${baht(t.gross)}</b></div>
+      ${t.fee ? `<div class="costrow"><span>หัก GP + VAT</span><b class="bad">−${baht(t.fee)}</b></div>` : ''}
+      <div class="costrow total"><span>รับเงินจริง</span><b class="good" style="font-size:1.2rem">${baht(t.net)}</b></div>
+      <div class="small muted">ต้นทุนวัตถุดิบ+บรรจุภัณฑ์ตามสูตร ≈ ${baht(t.cogs)}</div>`; };
+    const lines = () => {
+      const ql = q.trim().toLowerCase();
+      const rows = db.menus.filter(m => !ql || m.name.toLowerCase().includes(ql)).flatMap(m => m.sizes.map(s => ({ m, s })));
+      return rows.length ? rows.map(({ m, s }) => { const k = m.id + '|' + s.id, p = priceFor(m, s); return `<div class="sale-line"><div class="nm">${esc(m.name)}${m.sizes.length > 1 ? ` · ${esc(s.label)}` : ''}<small>${baht(p.gross, p.gross % 1 ? 2 : 0)}</small></div>
+        <div class="stepper"><button data-sl="dec" data-k="${k}" aria-label="ลด">−</button><input type="number" inputmode="numeric" data-sq="${k}" value="${qty[k] || ''}" placeholder="0"><button data-sl="inc" data-k="${k}" aria-label="เพิ่ม">＋</button></div><span></span></div>`; }).join('')
+        : `<div class="empty">${db.menus.length ? 'ไม่พบเมนู' : 'ยังไม่มีเมนู เพิ่มเมนูก่อน หรือใช้ “รายรับอื่นๆ”'}</div>`;
+    };
+    const body = `
+      <div class="grid2"><label class="f">วันที่<input type="date" id="slDate" value="${esc(d.date)}" max="${today()}"></label>
+        <label class="f">ช่องทาง<select id="slCh">${incCats().filter(c => c.id !== 'in_other').map(c => `<option value="${c.id}" ${c.id === d.cat ? 'selected' : ''}>${c.ic} ${esc(c.name)}${c.gp ? ` (GP ${c.gp}%)` : ''}</option>`).join('')}</select></label></div>
+      <div class="search"><input type="search" id="slQ" placeholder="ค้นหาเมนู"></div>
+      <div id="slLines">${lines()}</div>
+      <div class="card" id="slSum" style="margin-top:12px">${sumHtml()}</div>
+      <label class="f">โน้ต<input type="text" id="slNote" value="${esc(d.note)}" placeholder="เช่น ยอดปิดร้าน"></label>
+      ${ex ? `<button class="btn danger block" data-act="delTx" data-id="${ex.id}">ลบรายการนี้</button>` : ''}`;
+    const sh = openSheet({ title: '🧾 บันทึกยอดขาย', id: 'sale', full: true, body,
+      foot: '<button class="btn ghost" data-act="closeSheet">ยกเลิก</button><button class="btn" id="slSave">💾 บันทึกยอดขาย</button>' });
+    const refresh = () => { $('#slSum').innerHTML = sumHtml(); };
+    sh.el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-sl]'); if (!b) return;
+      const k = b.dataset.k; qty[k] = Math.max(0, (qty[k] || 0) + (b.dataset.sl === 'inc' ? 1 : -1));
+      const inp = sh.el.querySelector(`[data-sq="${k}"]`); if (inp) inp.value = qty[k] || '';
+      refresh();
+    });
+    sh.el.addEventListener('input', (e) => {
+      const t = e.target;
+      if (t.dataset.sq) { qty[t.dataset.sq] = Math.max(0, Math.floor(num(t.value))); refresh(); }
+      if (t.id === 'slQ') { q = t.value; $('#slLines').innerHTML = lines(); }
+      if (t.id === 'slDate') d.date = t.value;
+      if (t.id === 'slNote') d.note = t.value;
+    });
+    $('#slCh').onchange = (e) => { d.cat = e.target.value; $('#slLines').innerHTML = lines(); refresh(); };
+    $('#slSave').onclick = () => {
+      const t = totals();
+      if (!t.n) { toast('เลือกจำนวนเมนูที่ขายก่อน'); return; }
+      d.items = Object.entries(qty).filter(([, n]) => n > 0).map(([k, n]) => { const [menuId, sizeId] = k.split('|'); return { menuId, sizeId, qty: n }; });
+      d.amount = Math.round(t.net * 100) / 100; d.gross = Math.round(t.gross * 100) / 100; d.fee = Math.round(t.fee * 100) / 100; d.cogs = Math.round(t.cogs * 100) / 100;
+      if (!d.note) d.note = d.items.map(it => { const m = getMenu(it.menuId), s = m && m.sizes.find(z => z.id === it.sizeId); return m ? `${m.name}${m.sizes.length > 1 && s ? ' ' + s.label : ''} ×${it.qty}` : ''; }).filter(Boolean).join(', ');
+      if (!d.date) d.date = today();
+      d.ts = d.ts || new Date().toISOString();
+      const i = db.tx.findIndex(x => x.id === d.id);
+      if (i >= 0) db.tx[i] = d; else db.tx.push(d);
+      save(); closeSheet(); ui.month = d.date.slice(0, 7); render(); toast(`บันทึกยอดขาย ${baht(d.amount, 0)} แล้ว`);
+    };
+  }
+
+  function exportTxCsv() {
+    const ym = ui.month || ymNow(), list = [...monthTx(ym)].sort((a, b) => a.date.localeCompare(b.date));
+    const head = ['วันที่', 'ประเภท', 'หมวด/ช่องทาง', 'จำนวนเงิน', 'ยอดขายก่อนหัก GP', 'GP', 'ต้นทุนตามสูตร', 'โน้ต'];
+    const rows = list.map(t => [t.date, t.type === 'in' ? 'รายรับ' : 'รายจ่าย', txCat(t).name, num(t.amount).toFixed(2), t.gross != null ? num(t.gross).toFixed(2) : '', t.fee != null ? num(t.fee).toFixed(2) : '', t.cogs != null ? num(t.cogs).toFixed(2) : '', t.note || '']);
+    const csv = [head, ...rows].map(r => r.map(x => `"${String(x).replace(/"/g, '""')}"`).join(',')).join('\n');
+    download(`บัญชี-${ym}.csv`, '﻿' + csv, 'text/csv;charset=utf-8');
   }
 
   // ================= sheets =================
@@ -786,6 +1036,14 @@
       case 'delPlat': db.settings.platforms.splice(i, 1); save(); render(); break;
       case 'exportJson': download(`khumkrua-backup-${today()}.json`, JSON.stringify(db), 'application/json'); break;
       case 'exportCsv': exportCsv(); break;
+      // ledger
+      case 'monthPrev': ui.month = ymShift(ui.month || ymNow(), -1); render(); break;
+      case 'monthNext': ui.month = ymShift(ui.month || ymNow(), 1); render(); break;
+      case 'newTx': txSheet(t.dataset.v || 'out'); break;
+      case 'newSale': saleSheet(); break;
+      case 'editTx': txSheet('out', id); break;
+      case 'delTx': if (confirm('ลบรายการนี้?')) { db.tx = db.tx.filter(x => x.id !== id); save(); closeSheet(); render(); } break;
+      case 'exportTxCsv': exportTxCsv(); break;
       case 'resetAll': if (confirm('ล้างข้อมูลทั้งหมด? (กู้คืนไม่ได้ ถ้าไม่ได้สำรองไว้)')) { db = defaults(); save(); go('home'); } break;
     }
   });

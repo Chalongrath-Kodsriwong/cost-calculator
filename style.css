@@ -46,7 +46,7 @@ h1, h2, h3 { margin: 0; line-height: 1.3; }
 .iconbtn { background: var(--card); border: 1px solid var(--line); border-radius: 12px; width: 40px; height: 40px; cursor: pointer; font-size: 1.1rem; }
 
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, 1fr);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, 1fr);
   background: var(--card); border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom); height: calc(var(--tabh) + env(safe-area-inset-bottom));
 }
@@ -211,3 +211,29 @@ input[type=range] { width: 100%; accent-color: var(--brand); height: 28px; }
   .sheet-body { overflow: visible; }
   #view { display: none; }
 }
+
+/* ---------- บัญชีรายรับรายจ่าย ---------- */
+.monthbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.monthbar b { font-size: 1.05rem; }
+.monthbar .iconbtn { font-size: 1rem; }
+.pl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pl .stat .v { font-size: 1.35rem; }
+.in { color: var(--good); } .out { color: var(--bad); }
+.net { text-align: center; padding: 14px; border-radius: var(--r); margin-top: 10px; background: var(--brand-soft); }
+.net.neg { background: #fee2e2; }
+@media (prefers-color-scheme: dark) { .net.neg { background: #3b1414; } }
+.net .v { font-size: 2rem; font-weight: 700; line-height: 1.2; }
+.bars { width: 100%; height: 120px; display: block; }
+.catrow { margin-bottom: 8px; font-size: .9rem; }
+.catrow .meter { height: 7px; margin: 4px 0 0; }
+.daygrp { margin: 14px 0 6px; font-size: .84rem; color: var(--muted); display: flex; justify-content: space-between; }
+.tx { display: flex; align-items: center; gap: 10px; background: var(--card); border-radius: 14px; padding: 10px 12px; box-shadow: var(--shadow); margin-bottom: 6px; cursor: pointer; width: 100%; border: none; text-align: left; }
+.tx .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--soft); flex: none; }
+.tx .t { font-weight: 500; } .tx .s { font-size: .8rem; color: var(--muted); }
+.tx .a { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sale-line { display: grid; grid-template-columns: 1fr 96px 34px; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.sale-line .nm small { display: block; color: var(--muted); }
+.stepper { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--soft); }
+.stepper button { border: none; background: none; height: 38px; font-size: 1.2rem; cursor: pointer; color: var(--brand); }
+.stepper input { border: none; background: none; text-align: center; padding: 6px 0; border-radius: 0; }
+input[type=date] { width: 100%; font-size: 16px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--soft); color: var(--text); }
